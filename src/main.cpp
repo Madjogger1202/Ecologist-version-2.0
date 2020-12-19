@@ -1,13 +1,19 @@
 #include <Arduino.h>
-  
-/*
-  electronics to programm: nrk24l01, lora  (todo, todo)
-                           bmp280, adxl345 (todo, todo)
-                           geiger counter (todo)
-                           ds18b20, sgp30 (todo, todo)
-                           PM2.5 snsr, CO2 snsr (todo, todo)
 
-*/
+#define BMP_CS  41
+#define ADXL_CS  40
+#define NRF_CS  39
+#define NRF_CE  38
+#define LORA_CS  37
+#define LORA_INT 36
+#define SD_CS  35
+
+#define GP2Y_PIN A0
+
+
+
+
+
 
 
 void setup()
