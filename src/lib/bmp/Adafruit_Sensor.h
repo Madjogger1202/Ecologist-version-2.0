@@ -19,7 +19,7 @@
 
 #ifndef _ADAFRUIT_SENSOR_H
 #define _ADAFRUIT_SENSOR_H
-
+#include "Arduino.h"
 #ifndef ARDUINO
 #include <stdint.h>
 #elif ARDUINO >= 100

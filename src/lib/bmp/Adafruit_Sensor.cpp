@@ -1,5 +1,5 @@
 #include "Adafruit_Sensor.h"
-
+#include "Arduino.h"
 /**************************************************************************/
 /*!
     @brief  Prints sensor information to serial console
