@@ -4,13 +4,19 @@
 #define OW_DS18B20_READ_SCRATCHPAD 0xBE // Чтение скратчпада ds18b20
 #define DS18B20_SCRATCHPAD_SIZE 9       // Размер скратчпада ds18b20
 
+#define PPM_COEF 5000
+
 #include <Arduino.h>
 
 #include <OneWire.h>                    // библиотека для работы с барометром по одноименному протоколу
 #include <Adafruit_BMP280.h>            // библиотека для работы с барометром
 #include <nRF24L01.h>                   // суб-библиотека для радиомодуля
 #include <RF24.h>                       // основная библиотека для радиомодуля
+#include <LoRa.h>
+#include <SD.h>
 #include <SparkFun_ADXL345.h>
+#include "Adafruit_SGP30.h"
+#include "ClosedCube_SHT31D.h"
 #include <Wire.h>
 #include <SPI.h>
 
@@ -39,6 +45,9 @@ OneWire  ds(DS18B20);
 ADXL345 adxl = ADXL345(ADXL_CS); 
 Adafruit_BMP280 bmp(BMP_CS); 
 RF24 radio(NRF_CE, LORA_CS);
+
+ClosedCube_SHT31D sht3xd;
+Adafruit_SGP30 sgp;
 
 
 /* это неправильно, но пока что я поставлю точно рабочий костыль вместо динамического размера пакета
@@ -91,7 +100,23 @@ void radIRQ();
 float getHumid(); 
 boolean ds18b20_convert_t();
 boolean ds18b20_read_t(float & temperatur);
+long int getCO2Data();
+uint16_t getPM2_5();
+volatile long long timer_high;
+volatile long long timer_low;
 
+void co2_int()
+{
+    if(digitalRead(MH_Z19B))
+    {
+        timer_high = micros();
+    }
+    else
+    {
+        timer_low = micros()-timer_high;
+    }
+    
+}
 
 void setup()
 {
@@ -111,7 +136,7 @@ void setup()
     radio.setDataRate(RF24_2MBPS);                           // Указываем скорость передачи данных (RF24_250KBPS, RF24_1MBPS, RF24_2MBPS), RF24_1MBPS - 1Мбит/сек
     radio.setPALevel(RF24_PA_HIGH);                            // Указываем мощность передатчика (RF24_PA_MIN=-18dBm, RF24_PA_LOW=-12dBm, RF24_PA_HIGH=-6dBm, RF24_PA_MAX=0dBm)
     radio.openWritingPipe(0x1234567899LL);                     // Открываем трубу с идентификатором 0x1234567899LL для передачи данных (на одном канале может быть открыто до 6 разных труб, которые должны отличаться только последним байтом идентификатора)
-
+    attachInterrupt(6, co2_int, CHANGE);
 
 
 }
@@ -123,7 +148,41 @@ void loop()
   
 }
 
+uint16_t getPM2_5()
+{
+    unsigned int samplingTime = 280;
+    unsigned int deltaTime = 40;
+    unsigned int sleepTime = 9680;
+    float voMeasured = 0;
+    float calcVoltage = 0;
+    float dustDensity = 0;
 
+    digitalWrite(GP2Y_LED,LOW);
+    delayMicroseconds(samplingTime);
+
+    voMeasured = analogRead(GP2Y_PIN);
+  
+    delayMicroseconds(deltaTime);
+    digitalWrite(ledPower,HIGH);
+    delayMicroseconds(sleepTime);
+  
+    calcVoltage = voMeasured*(5.0/1024);
+    dustDensity = 0.17*calcVoltage-0.1;
+  
+    if ( dustDensity < 0)
+    {
+      dustDensity = 0.00;
+    }
+
+}
+
+long int getCO2Data()
+{ 
+    timer_low /= 1000;
+    timer_high = 1004 - timer_low;
+    timer_low = PPM_COEF*(timer_low - 2)/(timer_low + timer_high - 4);
+    return timer_low;
+}
 
 bool measureAcs(int16_t x, int16_t y, int16_t z)
 {
