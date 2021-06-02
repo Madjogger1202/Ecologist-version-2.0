@@ -13,7 +13,6 @@ void high_sub();
 void attach_ints(int for_low, int for_high)
 {
     attachInterrupt(digitalPinToInterrupt(for_low), low_sub, FALLING);
-    attachInterrupt(digitalPinToInterrupt(for_high), high_sub, RISING);
 }
 
 long int getCO2Data()
