@@ -25,7 +25,7 @@ volatile long long timer_high;
 volatile long long timer_low;
 
 uint32_t fastTimer;
-uint32_t fastTimerDel = 150;
+uint32_t fastTimerDel = 50;
 
 uint32_t slowTimer;
 uint32_t slowTimerDel = 400;
@@ -85,6 +85,83 @@ void printSDfast();
 void printSDslow();
 void fastDataMeasureNsend();
 void slowDataMeasureNSend();
+
+
+void setup()
+{
+  attachInterrupt(4, readDoze, RISING);
+  attachInterrupt(6, CO2int, CHANGE);
+  Serial.begin(115200);
+  Serial1.begin(9600);                         //  Инициируем работу с аппаратной шиной UART для получения данных от GPS модуля на скорости 9600 бит/сек.
+  
+  SPI.begin();                                               // инициализируем работу с SPI
+  SPI.setDataMode(SPI_MODE3); 
+  LoRa.setPins(26, 25, 5);
+  if (!LoRa.begin(433E6))
+    Serial.println("Starting LoRa failed!");
+  else
+    Serial.println("LoRa started sucsessfully");
+
+  printf_begin(); 
+  radio.begin();                            // (для макета) красный - желтый - оранжевый  (с конца платы, с внешней стороны) 
+  radio.setChannel(100);                    // Указываем канал передачи данных (от 0 до 127), 5 - значит передача данных осуществляется на частоте 2,405 ГГц (на одном канале может быть только 1 приёмник и до 6 передатчиков)
+  radio.setDataRate(RF24_250KBPS);          // Указываем скорость передачи данных (RF24_250KBPS, RF24_1MBPS, RF24_2MBPS), RF24_1MBPS - 1Мбит/сек
+  radio.setPALevel(RF24_PA_MAX);            // Указываем мощность передатчика (RF24_PA_MIN=-18dBm, RF24_PA_LOW=-12dBm, RF24_PA_HIGH=-6dBm, RF24_PA_MAX=0dBm)
+  radio.openWritingPipe(0x1234567899LL);
+  radio.setAutoAck(false);
+  radio.printDetails();
+  
+  if (!SD.begin(27))
+  {
+      Serial.println("initialization failed!");
+      tone(24, 1000);
+      delay(4000);
+      noTone(24);
+      tone(24, 6000);
+      delay(4000);
+      noTone(24);
+      tone(24, 1000);
+      delay(4000);
+      noTone(24);
+      tone(24, 6000);
+      delay(4000);
+      noTone(24);
+       
+  }  
+  myFile = SD.open("test.txt", FILE_WRITE);
+  if (myFile) {
+    myFile.println("got ya");
+    myFile.close();
+  } else
+  Serial.println("error opening test.txt");
+
+  myFile = SD.open("test.txt");
+  if (myFile)
+    myFile.close();
+  else
+    Serial.println("error opening file");
+  gps.begin(Serial1);
+  gps.timeZone(3); 
+  delay(100);
+  if (! sgp.begin())
+    Serial.println("SGP30 sensor not found :(");
+  SHT.Begin();
+}
+
+void loop()
+{
+    if(millis()>=fastTimer)
+    {
+        fastDataMeasureNsend();
+        fastTimer+=fastTimerDel;
+    }
+    if(millis()>=slowTimer)
+    {
+        slowDataMeasureNSend();
+        slowTimer+=slowTimerDel;
+    }
+}
+
 int main()
 {
   attachInterrupt(4, readDoze, RISING);
@@ -144,6 +221,7 @@ int main()
   if (! sgp.begin())
     Serial.println("SGP30 sensor not found :(");
   SHT.Begin();
+  adxl.set
 
   while(1)
   {
@@ -183,7 +261,7 @@ void fastDataMeasureNsend()
     Serial.print(fastData.presssure);
     Serial.print(",");
     Serial.println(fastData.counter);
-    myFile = SD.open("its_wednesday_dd.csv", FILE_WRITE);
+    myFile = SD.open("its_wednesday_dd.txt", FILE_WRITE);
 
     if (myFile) 
     {
@@ -218,9 +296,9 @@ void slowDataMeasureNSend()
     }
     slowData.pm25 = int16_t(dustDensity*1000);
 
-    gps.read(); 
-    slowData.lanGPS=gps.latitude;
-    slowData.lonGPS=gps.longitude;
+    //gps.read(); 
+    //slowData.lanGPS=gps.latitude;
+    //slowData.lonGPS=gps.longitude;
 
     if (millis()/100>=ds18b20_timer)//  раз в 3 итерации выполняется снятие данных с датчика
     {  
@@ -250,7 +328,7 @@ void slowDataMeasureNSend()
     LoRa.print(" ");
     LoRa.print(slowData.lonGPS);
     LoRa.endPacket();
-    myFile = SD.open("its_wednesday_dd_bt_slowww.csv", FILE_WRITE);
+    myFile = SD.open("its_wednesday_dd_bt_slowww.txt", FILE_WRITE);
 
     if (myFile) 
     {
