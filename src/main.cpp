@@ -94,7 +94,7 @@ uint32_t slowTimerDel = 500;      //
                                   //
 uint32_t ds18b20_timer;           //
                                   //
-uint32_t rad_log_timer;           // 
+uint32_t rad_log_timer = 6000;    // 
 ////////////////////////////////////
 
 ////////////////////////////////////
@@ -158,7 +158,7 @@ void printSDfast();
 void printSDslow();
 void fastDataMeasureNsend();
 void slowDataMeasureNSend();
-void clarDoze();
+void clearDoze();
 void writeRadLog(); 
 
 void setup()
@@ -202,6 +202,9 @@ void setup()
   radio.printDetails();
 
   //////////////////////////////////////////////////////
+  SPI.begin();                                        //
+  SPI.setDataMode(SPI_MODE3);                         //
+  delay(100);                                         //
   if (!SD.begin(SD_CS))                               // обычно всё проходит штатно, но если не инициализировалось - имеет смысл проверить карточку
   {                                                   //
     Serial.println(" SD card initialization failed!");//
@@ -269,8 +272,8 @@ void loop()
   }
   if (millis() >= rad_log_timer)
   {
-    writeRadLog();
-    clarDoze();
+    //writeRadLog();                      // раскомментировать когда дозиметр будет отлажен
+    //clearDoze();                        // раскомментировать когда дозиметр будет отлажен
     rad_log_timer = millis() + 4000;
   }
 }
@@ -299,6 +302,7 @@ void fastDataMeasureNsend()
   Serial.print(",");
   Serial.println(fastData.counter);
   //  SD.begin(SD_CS);                             // дергать карточку перед записью каждый раз нежелательно
+  SPI.begin();
   myFile = SD.open("Eco.txt", FILE_WRITE);
 
   if (myFile)
@@ -393,6 +397,7 @@ void slowDataMeasureNSend()
     LoRa.endPacket(1);
   }
   //  SD.begin(27);
+  SPI.begin();
   myFile = SD.open("Eco2.txt", FILE_WRITE);
 
   if (myFile)
@@ -478,7 +483,7 @@ void readDoze()
 
 }
 
-void clarDoze()
+void clearDoze()
 {
   for(uint8_t i = 0; i<256; i++)
     doze[i]=0;
@@ -491,14 +496,18 @@ void writeRadLog()                            // подразумевается,
 
   if (myFile)
   {
-    for(uint8_t i = 0; i<256; i++)
+    for(uint8_t i = 100; i<256; i++)
     {
       myFile.print(doze[i]);
       myFile.print(",");
     }
     myFile.println();
+    myFile.close();
   }
-
+  else
+  {
+    tone(BUZZER_PIN, 1000);
+  }
 }
 
 void CO2int()
