@@ -27,7 +27,7 @@
 #define DS18B20_SCRATCHPAD_SIZE 9       // Размер скратчпада ds18b20
 //////////////////////////////////////////
 
-// CAUTION!! к чему подключаться: 
+// CAUTION!! к чему подключаться и полезные примечания: 
 #define RAD_IRQ 4
 #define RAD_1 41
 #define RAD_2 40
@@ -38,21 +38,21 @@
 #define RAD_7 35
 #define RAD_8 34
 
-#define DS18B20_PIN 31
-#define MH_Z19B_IRQ 6
-#define NRF24_CS 30
-#define NRF24_CE 29
-#define GPS_UART Serial1
-#define GPS_DEF_BOD 9600
-#define GPS_DEF_RATE 1
-#define PM25_LED 43
-#define PM25_OUT A0 
-#define SD_CS 27
-#define LORA_NSS
-#define LORA_DIO0
-#define LORA_RST
-
-
+#define DS18B20_PIN 31          // пин данных с термометра
+#define MH_Z19B_IRQ 6           // вывод ШИМ с датчика CO2, также 6 рерывание в коде
+#define NRF24_CS 30             // CS радиомодуля
+#define NRF24_CE 29             // CE радиомодуля
+#define GPS_UART Serial1        // 
+#define GPS_DEF_BOD 9600        // нельзя поменять, записав в память GPS, он не запоминает
+#define GPS_DEF_RATE 1          // same thing 
+#define PM25_LED 43             // Просвечивающий светодиод у датчика PM2.5
+#define PM25_OUT A0             // Вывод чувствительного у датчика PM2.5
+#define SD_CS 27                // CS sd карты *модуля*
+#define LORA_NSS 26             // CS лоры
+#define LORA_DIO0 5             // первое прерывание с лоры
+#define LORA_RST 25             // Пин перезагрузки лоры
+#define BUZZER_PIN 24           // Пищалка, активируется просто подачей напряжения
+#define BEST_SPI_SPEED 5E6      // частота, на которой все точно работает нормально
 
 
 
@@ -92,12 +92,14 @@ uint32_t fastTimerDel = 100;      //
 uint32_t slowTimer;               //   таймеры для общего цикла
 uint32_t slowTimerDel = 500;      //
                                   //
-uint32_t ds18b20_timer;           // 
+uint32_t ds18b20_timer;           //
+                                  //
+uint32_t rad_log_timer;           // 
 ////////////////////////////////////
 
 ////////////////////////////////////
-int measurePin = A0;              // 
-int ledPower = 43;                //
+int measurePin = PM25_OUT;        // 
+int ledPower = PM25_LED;          //
                                   // для датчика PM2.5
 float voMeasured = 0;             //
 float calcVoltage = 0;            //
@@ -105,14 +107,15 @@ float dustDensity = 0;            //
 ////////////////////////////////////
 
 volatile uint16_t doze[256];      // для хранения почти нашего спектра импульсов
+volatile uint16_t dozeAbs;        // просто кол-во импульсов
 
 iarduino_GPS_NMEA    gps;         // по факту - абстрактный объект, которому уже потом нужно скормить нард uart шину
 SHT3x SHT;                        // I2C
-OneWire  ds(31);                  // OneWire
+OneWire  ds(DS18B20_PIN);         // OneWire
 Adafruit_SGP30 sgp;               // I2C
 iarduino_Pressure_BMP sensor;     // I2C
 ADXL345 adxl = ADXL345();         // I2C
-RF24 radio(30, 29);               // CS, CE (см в гугл таблице)
+RF24 radio(NRF24_CS, NRF24_CE);   // CS, CE (см в гугл таблице)
 
 File myFile;                      // объект файла для СД карты
 
@@ -166,18 +169,18 @@ void setup()
                                                  //     RX   *
                                                  //     *    TX           
   
-  attachInterrupt(4, readDoze, RISING);          // прерывание для дозиметра (если все перестало работать - два раза ударить по слешу и дозиметр перестанет дергать аппарат, а потом перепрошить stm8)
+//  attachInterrupt(RAD_IRQ, readDoze, RISING);          // прерывание для дозиметра (если все перестало работать - два раза ударить по слешу и дозиметр перестанет дергать аппарат, а потом перепрошить stm8)
   
-  pinMode(6, INPUT);
-  attachInterrupt(6, CO2int, CHANGE);             // прерывание для считывания ШИМ сигнала с датчика CO2 
+  pinMode(MH_Z19B_IRQ, INPUT);
+  attachInterrupt(MH_Z19B_IRQ, CO2int, CHANGE);        // прерывание для считывания ШИМ сигнала с датчика CO2 
 
   SPI.begin();                                    // инициализируем работу с SPI
   SPI.setDataMode(SPI_MODE3);                     // чтобы лора не смогла подмять шину на старте
-  LoRa.setPins(26, 25, 5);                        // LoRa: NSS, RST, DIO0  ;  dio0 - прерывание
+  LoRa.setPins(LORA_NSS, LORA_RST, LORA_DIO0);    // LoRa: NSS, RST, DIO0  ;  dio0 - прерывание
   if (!LoRa.begin(long(433E6)))                   // частота не сильно влияет, в случае её замены нужно проверять, что числе идёт как long
   {
     Serial.println("Starting LoRa failed!");
-    tone(24, 6000);                               // по идее - пищать должна будет сразу после старта (первый паттерн пищания)
+    tone(BUZZER_PIN, 6000);                       // по идее - пищать должна будет сразу после старта (первый паттерн пищания)
   }
   else
   {
@@ -198,28 +201,32 @@ void setup()
   radio.setAutoAck(false);
   radio.printDetails();
 
-  if (!SD.begin(27))
-  {
-    Serial.println(" SD card initialization failed!");
-    tone(24, 1000);
-    delay(400);
-    noTone(24);
+  //////////////////////////////////////////////////////
+  if (!SD.begin(SD_CS))                               // обычно всё проходит штатно, но если не инициализировалось - имеет смысл проверить карточку
+  {                                                   //
+    Serial.println(" SD card initialization failed!");//
+    tone(BUZZER_PIN, 1000);                           //
+    delay(400);                                       //
+    noTone(BUZZER_PIN);                               //
+                                                      //
+  }                                                   //
+  myFile = SD.open("test.txt", FILE_WRITE);           //
+  if (myFile) {                                       //
+    myFile.println("got ya");                         //
+    myFile.close();                                   //
+  } else                                              //
+    Serial.println("error opening test.txt");         //
+                                                      //
+  myFile = SD.open("test.txt");                       //
+  if (myFile)                                         //
+    myFile.close();                                   //
+  else                                                //
+    Serial.println("error opening file");             //
+  delay(100);                                         //
+  //////////////////////////////////////////////////////
 
-  }
-  myFile = SD.open("test.txt", FILE_WRITE);
-  if (myFile) {
-    myFile.println("got ya");
-    myFile.close();
-  } else
-    Serial.println("error opening test.txt");
 
-  myFile = SD.open("test.txt");
-  if (myFile)
-    myFile.close();
-  else
-    Serial.println("error opening file");
-  delay(100);
-  
+
   ///////////////////////////////////////////////////
   if (! sgp.begin())                               // инициализация i2c-шных датчиков воздуха, если первый не заработает, значит шина i2c легла
     Serial.println("SGP30 sensor not found :(");   //
@@ -244,6 +251,10 @@ void setup()
   ////////////////////////////////////////////////
 }
 
+/*
+    Было бы более красиво всё закинуть в int main(), но в полевых условиях могут возникнуть конфликты в ненастроенной ide
+*/
+
 void loop()
 {
   if (millis() >= fastTimer)
@@ -255,6 +266,12 @@ void loop()
   {
     slowDataMeasureNSend();
     slowTimer = millis() + slowTimerDel;
+  }
+  if (millis() >= rad_log_timer)
+  {
+    writeRadLog();
+    clarDoze();
+    rad_log_timer = millis() + 4000;
   }
 }
 
@@ -281,7 +298,7 @@ void fastDataMeasureNsend()
   Serial.print(fastData.presssure);
   Serial.print(",");
   Serial.println(fastData.counter);
-  //  SD.begin(27);                             // дергать карточку перед записью каждый раз нежелательно
+  //  SD.begin(SD_CS);                             // дергать карточку перед записью каждый раз нежелательно
   myFile = SD.open("Eco.txt", FILE_WRITE);
 
   if (myFile)
@@ -298,16 +315,16 @@ void fastDataMeasureNsend()
     myFile.print(",");
     myFile.println(fastData.counter);
     myFile.close();
-    noTone(24);
+    noTone(BUZZER_PIN);
   }
   else
   {
-    tone(24, 1000);
+    tone(BUZZER_PIN, 1000);
     delay(100);
     SPI.begin();
-    SD.begin(27);
+    SD.begin(SD_CS);
     SPI.setDataMode(SPI_MODE3);
-    //    LoRa.begin((433E6+2));
+    //    LoRa.begin((433E6));
     Serial.println(myFile);
   }
 }
@@ -349,7 +366,7 @@ void slowDataMeasureNSend()
   sgp.IAQmeasure();
   slowData.tVOC = sgp.TVOC;
   slowData.co2_ppm = getCO2Data();
-  slowData.rad_qw = doze[0];
+  slowData.rad_qw = dozeAbs;
   doze[0] = 0;
   slowData.counter++;
   radio.write(&slowData, sizeof(slowData));
@@ -403,7 +420,7 @@ void slowDataMeasureNSend()
   }
   else
   {
-    tone(24, 1000);
+    tone(BUZZER_PIN, 1000);
   }
 }
 
@@ -445,7 +462,7 @@ bool ds18b20_read_t(float & temperatur)
 
 void readDoze()
 {
-  //doze[0]++;  // можно просто реализовать подсчет импульсов
+  dozeAbs++;        // можно просто реализовать подсчет импульсов
   uint8_t dozeImp;  // для распределения
   bitWrite(dozeImp, 0, digitalRead(41));
   bitWrite(dozeImp, 1, digitalRead(40));
@@ -465,6 +482,7 @@ void clarDoze()
 {
   for(uint8_t i = 0; i<256; i++)
     doze[i]=0;
+  dozeAbs=0;
 }
 
 void writeRadLog()                            // подразумевается, что лог пишется не особо часто, ибо на ячейку по 5 байт(символьно), значит 1 280 байт на запись
@@ -476,7 +494,7 @@ void writeRadLog()                            // подразумевается,
     for(uint8_t i = 0; i<256; i++)
     {
       myFile.print(doze[i]);
-      myFile.print(" ");
+      myFile.print(",");
     }
     myFile.println();
   }
@@ -485,7 +503,7 @@ void writeRadLog()                            // подразумевается,
 
 void CO2int()
 {
-  if (digitalRead(6))
+  if (digitalRead(MH_Z19B_IRQ))
     timer_high = micros();
   else
     timer_low = micros() - timer_high;
