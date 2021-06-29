@@ -1,7 +1,7 @@
 ////////////////////////////////////////////////////////////////////////
 //                                                                    //                         
 //    ┌◄──────────────────────────────────────►┐                      //                       
-//    │     Ecologist Cansat V2                │                      //                         
+//    │     Ecologist Cansat V2                │                     //                         
 //    │                                        │                      //                     
 //    │     Writen by Madjogger1202            │                      //
 //    │                                        │                      //
@@ -87,10 +87,10 @@ volatile long long timer_low;    //
 
 ////////////////////////////////////
 uint32_t fastTimer;               //
-uint32_t fastTimerDel = 100;      //
+uint32_t fastTimerDel = 40;      //
                                   //
 uint32_t slowTimer;               //   таймеры для общего цикла
-uint32_t slowTimerDel = 500;      //
+uint32_t slowTimerDel = 300;      //
                                   //
 uint32_t ds18b20_timer;           //
                                   //
@@ -169,7 +169,7 @@ void setup()
                                                  //     RX   *
                                                  //     *    TX           
   
-//  attachInterrupt(RAD_IRQ, readDoze, RISING);          // прерывание для дозиметра (если все перестало работать - два раза ударить по слешу и дозиметр перестанет дергать аппарат, а потом перепрошить stm8)
+  attachInterrupt(RAD_IRQ, readDoze, RISING);          // прерывание для дозиметра (если все перестало работать - два раза ударить по слешу и дозиметр перестанет дергать аппарат, а потом перепрошить stm8)
   
   pinMode(MH_Z19B_IRQ, INPUT);
   attachInterrupt(MH_Z19B_IRQ, CO2int, CHANGE);        // прерывание для считывания ШИМ сигнала с датчика CO2 
@@ -185,10 +185,11 @@ void setup()
   else
   {
     Serial.println("LoRa started sucsessfully");
-    // LoRa.enableCrc();                          // раскомментировать если настройки начнут сбивать контрольную сумму
+      LoRa.enableCrc();                         
     LoRa.setCodingRate4(8);
-    LoRa.setSignalBandwidth(62.5E3);
-    LoRa.setSpreadingFactor(5);
+    LoRa.setSignalBandwidth(250E3);
+    LoRa.setSpreadingFactor(8);
+    LoRa.explicitHeaderMode();
 
   }
 
@@ -273,8 +274,8 @@ void loop()
   if (millis() >= rad_log_timer)
   {
     //writeRadLog();                      // раскомментировать когда дозиметр будет отлажен
-    //clearDoze();                        // раскомментировать когда дозиметр будет отлажен
-    rad_log_timer = millis() + 4000;
+    clearDoze();                        // раскомментировать когда дозиметр будет отлажен
+    rad_log_timer = millis() + 6000;
   }
 }
 
@@ -372,6 +373,7 @@ void slowDataMeasureNSend()
   slowData.co2_ppm = getCO2Data();
   slowData.rad_qw = dozeAbs;
   doze[0] = 0;
+  dozeAbs = 0;
   slowData.counter++;
   radio.write(&slowData, sizeof(slowData));
   if (!(slowData.counter % 9))
@@ -385,11 +387,13 @@ void slowDataMeasureNSend()
   }
   if (!(slowData.counter % 18))
   {
-    LoRa.begin(long(433E6));
-    LoRa.enableCrc();
-    LoRa.setCodingRate4(8);
-    LoRa.setSignalBandwidth(62.5E3);
-    LoRa.setSpreadingFactor(5);
+    //LoRa.begin(long(433E6));
+   //   LoRa.enableCrc();                          // раскомментировать если настройки начнут сбивать контрольную сумму
+   // LoRa.setCodingRate4(8);
+   // LoRa.setSignalBandwidth(250E3);
+   // LoRa.setSpreadingFactor(8);
+   // LoRa.explicitHeaderMode();
+  //  LoRa.explicitHeaderMode();
     LoRa.beginPacket();
     LoRa.print(slowData.lanGPS, 7);
     LoRa.print(" ");
@@ -479,18 +483,19 @@ void readDoze()
   bitWrite(dozeImp, 6, digitalRead(35));
   bitWrite(dozeImp, 7, digitalRead(34));
   doze[dozeImp]++;
+  //noTone(BUZZER_PIN);
   Serial.println(doze[dozeImp]);           // для отладки и калибровки чувствительности 
 
 }
 
 void clearDoze()
 {
-  for(uint8_t i = 0; i<256; i++)
+  for(int i = 0; i<256; i++)
     doze[i]=0;
   dozeAbs=0;
 }
 
-void writeRadLog()                            // подразумевается, что лог пишется не особо часто, ибо на ячейку по 5 байт(символьно), значит 1 280 байт на запись
+void writeRadLog()                            // подразумевается, что лог пишется не особо часто, ибо на ячейку по 5 байт(символьно), значит 1 280 байт на запись
 {
   myFile = SD.open("RadLg.txt", FILE_WRITE);
 
